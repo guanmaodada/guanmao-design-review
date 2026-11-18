@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>设备巡检原型</title>
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="../components/page-review.css">
+  <link rel="stylesheet" href="../components/dev-notes.css">
+</head>
+<body>
+  <header class="masthead">
+    <strong id="project-title">设备巡检原型</strong>
+    <span>低保真</span>
+  </header>
+  <main class="workspace">
+    <nav id="page-nav" aria-label="原型页面"></nav>
+    <section class="workspace-page" aria-labelledby="page-title">
+      <div class="page-heading">
+        <h1 id="page-title"></h1>
+        <div id="prototype-actions" aria-label="研发说明工具"></div>
+      </div>
+      <div id="scenario-nav" class="scenario-nav" aria-label="场景"></div>
+      <div id="terminal-nav" class="scenario-nav" aria-label="屏幕方向和遥控器" hidden></div>
+      <div class="canvas-host">
+        <div id="canvas" class="canvas" aria-label="原型画布" tabindex="-1"></div>
+      </div>
+    </section>
+  </main>
+  <script id="dn-data" type="application/json">null</script>
+  <script src="../components/page-review.js"></script>
+  <script src="../components/dev-notes.js"></script>
+  <script src="pages.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

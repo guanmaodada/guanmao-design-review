@@ -1,0 +1,4 @@
+interface:
+  display_name: "GuanMao 评审"
+  short_description: "为 HTML、报告和演示稿加逐页评审，并交付带研发说明的可点击低保真原型"
+  default_prompt: "使用 $guanmao-design-review 为现有 HTML 添加逐页评审，或根据需求制作可离线交付的低保真原型。"

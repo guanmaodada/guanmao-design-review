@@ -1,0 +1,6 @@
+interface:
+  display_name: "GM 评审"
+  short_description: "用短名称调用 GuanMao 的 HTML 评审与低保真原型交付"
+  default_prompt: "用 $gm-review 给这份 HTML 加上本页意见。"
+policy:
+  allow_implicit_invocation: false

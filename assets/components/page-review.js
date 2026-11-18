@@ -1,0 +1,90 @@
+/* Local-only design review helper. No product requests or full-state capture. */
+(function () {
+'use strict';
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const prefix='design-page-review:';
+const memory=Object.create(null),dirty=Object.create(null),receiptCatalog=Object.create(null);
+const normalize=v=>String(v??'').replace(/\r\n?/g,'\n').trim();
+function configure({project,receipts=[]}){receiptCatalog[project]=receipts.filter(r=>typeof r.id==='string'&&typeof r.text==='string'&&typeof r.progress==='string')}
+function receiptFor(n){return (receiptCatalog[n.project]||[]).find(r=>r.id===n.id&&normalize(r.text)===normalize(n.text))}
+function progress(n){return n.status==='已处理'?'已处理':receiptFor(n)?.progress||n.status}
+function progressHTML(n){const r=receiptFor(n);return esc('修改进展：'+progress(n)+(r?'；'+r.processedAt+' '+r.message:''))}
+function transaction(project,op,note,notify=true){
+ const key=prefix+project;
+ const empty=()=>({schema:1,project,notes:Object.create(null)});
+ let persistent=true,message='',db;
+ try {
+  const raw=localStorage.getItem(key);
+  db=raw?JSON.parse(raw):empty();
+  if(db?.schema!==1||db.project!==project||!db.notes||typeof db.notes!=='object'||Array.isArray(db.notes)) throw Error('格式');
+ } catch {
+  persistent=false;
+  message='浏览器存储不可用或原数据无法读取。本次仅保留在当前页面，请导出备份。';
+  db=memory[key]||empty();
+ }
+ if(dirty[key]){
+  db=memory[key]||db;
+  if(op==='all'){persistent=false;message='仍有未写入浏览器的意见，请导出备份。';}
+ }
+ if(op==='upsert')Object.defineProperty(db.notes,note.id,{value:note,enumerable:true,configurable:true,writable:true});
+ if(op==='delete')delete db.notes[note.id];
+ if(op!=='all'){
+  if(persistent){
+   try {localStorage.setItem(key,JSON.stringify(db));}
+   catch {persistent=false;message='本地保存失败。本次仅保留在当前页面，请导出备份。';}
+  }
+  dirty[key]=!persistent;
+ }
+ memory[key]=db;
+ if(notify&&op!=='all')window.dispatchEvent(new CustomEvent('design-review-local-change',{detail:{project}}));
+ return {db,persistent,message};
+}
+// Trusted parent brokers storage for an opaque, sandboxed srcdoc child.
+function broker(frame,project){window.addEventListener('message',ev=>{
+ const m=ev.data;if(ev.source!==frame.contentWindow||m?.type!=='design-review-store'||m.project!==project||!['all','upsert','delete'].includes(m.op))return;
+ if(m.op!=='all'&&(!valid(m.note)||m.note.project!==project))return;
+ const result=transaction(project,m.op,m.note,false);ev.source.postMessage({type:'design-review-result',request:m.request,...result},'*');
+ });}
+function valid(n){return n&&typeof n.id==='string'&&n.id.length<250&&!['__proto__','constructor','prototype'].includes(n.id)&&typeof n.text==='string'&&n.text.length<=20000&&typeof n.title==='string'&&n.title.length<500&&['待讨论','已确认修改','已处理'].includes(n.status);}
+function create({project,onResize=()=>{}}){
+ let db={schema:1,project,notes:{}},host,context,warning='',ready=false,showAll=false,pending=0,serial=0,version=0;
+ const queue=new Map();
+ function call(op,note){
+  if(window.parent===window)return Promise.resolve(transaction(project,op,note));
+  const request=project+':'+(++serial)+':'+Date.now();return new Promise(resolve=>{const timer=setTimeout(()=>{queue.delete(request);resolve({db,persistent:false,message:'评审保存没有收到确认，请导出备份后再关闭页面。'})},1800);queue.set(request,{resolve,timer});parent.postMessage({type:'design-review-store',project,op,note,request},'*')});
+ }
+ window.addEventListener('message',ev=>{const m=ev.data;if(ev.source!==parent||m?.type!=='design-review-result'||!queue.has(m.request))return;const p=queue.get(m.request);clearTimeout(p.timer);queue.delete(m.request);p.resolve(m)});
+ const loading=call('all').then(r=>{db=r.db;warning=r.message;ready=true;draw()});
+ function note(){
+  if(Object.hasOwn(db.notes,context.id))return db.notes[context.id];
+  return {id:context.id,project,title:context.title,section:context.section,context:context.description||'',text:'',status:'待讨论',updatedAt:''};
+ }
+ function save(text,status){if(!ready||!context)return;if(normalize(text)!==normalize(note().text)&&status==='已处理'){status='待讨论';const select=host.querySelector('[data-pr-select]');if(select)select.value=status;}const n={...note(),title:context.title,section:context.section,context:context.description||'',text,status,updatedAt:new Date().toISOString()};db.notes[n.id]=n;const current=++version;pending++;statusText('保存中…');call('upsert',n).then(r=>{pending--;warning=r.message;if(current===version){db=r.db;statusText(warning||'已自动保存到当前浏览器');counts();refreshProgress();}onResize()});}
+ function statusText(s){if(host?.isConnected){const n=host.querySelector('[data-pr-status]');if(n){n.textContent=s;n.classList.toggle('pr-warning',!!warning)}}}
+ function refreshProgress(){const box=host?.querySelector('[data-pr-progress]');if(box)box.innerHTML=progressHTML(note())}
+ function counts(){if(host?.isConnected){const n=host.querySelector('[data-pr-count]');if(n)n.textContent=Object.values(db.notes).filter(n=>n.text.trim()).length;}}
+ function download(ext,content,type){const a=document.createElement('a'),url=URL.createObjectURL(new Blob([content],{type}));a.href=url;a.download=project+'-评审意见.'+ext;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+ async function exportNotes(ext){const fresh=await call('all');if(fresh.persistent){db=fresh.db;}else{warning=fresh.message;}const notes=Object.values(db.notes).filter(n=>n.text.trim()).sort((a,b)=>a.id.localeCompare(b.id));if(ext==='json')download(ext,JSON.stringify({schema:1,project,exportedAt:new Date().toISOString(),notes:Object.fromEntries(notes.map(n=>[n.id,{...n,processingProgress:progress(n),processingMessage:receiptFor(n)?.message??''}]))},null,2),'application/json;charset=utf-8');else download(ext,'# 设计评审意见\n\n项目：'+project+'\n仅包含人工填写的意见及页面位置。\n\n'+notes.map(n=>'## '+n.title+'\n\n页面：'+n.id+'\n场景：'+n.context+'\n状态：'+progress(n)+(progress(n)!==n.status?'\n本地标记：'+n.status:'')+(receiptFor(n)?'\n修改说明：'+receiptFor(n).message+'\n落实日期：'+receiptFor(n).processedAt:'')+'\n修改时间：'+n.updatedAt+'\n\n'+n.text).join('\n\n'),'text/markdown;charset=utf-8');}
+ async function remove(id){if(!confirm('删除这条页面意见？删除前可先导出备份。'))return;const r=await call('delete',db.notes[id]);db=r.db;warning=r.message;draw();}
+ function draw(){if(!host?.isConnected||!context)return;const n=note();host.className='page-review';host.innerHTML=`<div class="pr-heading"><div><strong>本页意见</strong><span class="pr-page">${esc(context.title)}</span></div><span class="pr-count">已记录 <b data-pr-count>0</b> 页</span></div><p class="pr-help">设计评审辅助工具 · 意见仅保存在当前浏览器，切换页面保留草稿。发送 HTML 不会附带意见，请导出后一起发送。更换文件位置或浏览器前请备份。</p><div class="pr-meta">${esc(context.description||'')}</div><p class="pr-progress" data-pr-progress>${progressHTML(n)}</p><label class="pr-label">评审意见<textarea data-pr-text maxlength="20000" placeholder="例如：这里应先选择门店；失败后保留已填内容。" ${ready?'':'disabled'}>${esc(n.text)}</textarea></label><div class="pr-actions"><label>你的标记 <select data-pr-select ${ready?'':'disabled'}>${['待讨论','已确认修改','已处理'].map(s=>`<option ${s===n.status?'selected':''}>${s}</option>`).join('')}</select></label><button type="button" data-pr="save" ${ready?'':'disabled'}>保存本页意见</button><button type="button" data-pr="all">${showAll?'收起全部意见':'查看全部意见'}</button><button type="button" data-pr="md">导出全部意见</button><button type="button" data-pr="json">备份 JSON</button><label class="pr-import">导入备份<input type="file" accept=".json,application/json" data-pr-file></label>${n.text?'<button type="button" data-pr="delete">删除本页意见</button>':''}</div><p data-pr-status role="status" class="${warning?'pr-warning':''}">${esc(warning||(!ready?'正在读取本地意见…':n.updatedAt?'已自动保存到当前浏览器':'填写后自动保存'))}</p>${showAll?`<div class="pr-all">${Object.values(db.notes).filter(n=>n.text.trim()).map(n=>`<article><strong>${esc(n.title)}</strong><small>${esc(progress(n))} · ${esc(n.context)}</small><p>${esc(n.text)}</p></article>`).join('')||'<p>还没有评审意见。</p>'}</div>`:''}`;
+ counts();host.querySelector('[data-pr-text]').addEventListener('input',ev=>save(ev.target.value,host.querySelector('[data-pr-select]').value));host.querySelector('[data-pr-select]').addEventListener('change',ev=>save(host.querySelector('[data-pr-text]').value,ev.target.value));
+ host.querySelectorAll('[data-pr]').forEach(b=>b.addEventListener('click',()=>{const a=b.dataset.pr;if(a==='save')save(host.querySelector('[data-pr-text]').value,host.querySelector('[data-pr-select]').value);if(a==='all'){call('all').then(r=>{db=r.db;warning=r.message;showAll=!showAll;draw()})}if(['md','json'].includes(a))exportNotes(a);if(a==='delete')remove(context.id)}));
+ host.querySelector('[data-pr-file]').addEventListener('change',async ev=>{const file=ev.target.files[0];if(!file)return;try{if(file.size>3000000)throw Error('备份文件超过3MB');const b=JSON.parse(await file.text());if(b.schema!==1||b.project!==project||!b.notes||Array.isArray(b.notes))throw Error('备份格式或项目不匹配');const ns=Object.values(b.notes);if(!ns.every(n=>valid(n)&&n.project===project))throw Error('备份内容不完整');if(!confirm('合并 '+ns.length+' 条意见？相同页面只保留修改时间较新的内容，不清空其他意见。'))return;for(const n of ns){if(!db.notes[n.id]||n.updatedAt>db.notes[n.id].updatedAt){const r=await call('upsert',n);db=r.db;warning=r.message}}draw();statusText(warning||'备份已合并')}catch(error){statusText('导入失败：'+error.message+'。现有意见未清空。')}});
+ onResize();}
+ return {mount(element,ctx){host=element;context=ctx;draw()},async refresh(ctx){await loading;if(ctx)context=ctx;const current=version,id=context?.id;const r=await call('all');if(current===version&&id===context?.id){db=r.db;warning=r.message;draw()}},exportNotes,ready:loading,data:()=>db,pending:()=>pending};
+}
+function attachDrawer({project,context:initialContext}){
+ let current=initialContext,opened=false,returnFocus=null;
+ const launcher=document.createElement('button');launcher.type='button';launcher.className='pr-launcher';launcher.setAttribute('aria-controls','pr-review-drawer');launcher.setAttribute('aria-expanded','false');launcher.innerHTML='<strong>本页意见</strong><span data-pr-current></span>';
+ const drawer=document.createElement('section');drawer.id='pr-review-drawer';drawer.className='pr-drawer';drawer.hidden=true;drawer.setAttribute('role','region');drawer.setAttribute('aria-label','评审意见面板');drawer.innerHTML='<header class="pr-drawer-header"><div><strong>评审意见</strong><p>直接填写当前页面的意见，无需滚动正文</p></div><button type="button" data-pr-close aria-label="收起评审意见">收起 ×</button></header><div class="pr-drawer-body"><div data-pr-editor></div></div>';
+ document.body.append(launcher,drawer);const reviewer=create({project}),editor=drawer.querySelector('[data-pr-editor]');
+ function label(){launcher.querySelector('[data-pr-current]').textContent=current?.title||'当前页面'}
+ async function open(ctx){if(ctx)current=ctx;if(!current)return;returnFocus=document.activeElement;opened=true;drawer.hidden=false;launcher.setAttribute('aria-expanded','true');label();reviewer.mount(editor,current);await reviewer.refresh(current);if(opened)editor.querySelector('textarea')?.focus({preventScroll:true})}
+ function close(){opened=false;drawer.hidden=true;launcher.setAttribute('aria-expanded','false');if(returnFocus?.isConnected)returnFocus.focus({preventScroll:true})}
+ function setContext(ctx){if(!ctx)return;const changed=current?.id!==ctx.id||current?.description!==ctx.description;current=ctx;label();if(opened&&changed){reviewer.mount(editor,current);reviewer.refresh(current)}}
+ launcher.addEventListener('click',()=>opened?close():open());drawer.querySelector('[data-pr-close]').addEventListener('click',close);
+ document.addEventListener('keydown',ev=>{if(opened&&ev.key==='Escape'){ev.preventDefault();ev.stopImmediatePropagation();close()}},true);label();
+ return {open,close,setContext,reviewer,isOpen:()=>opened};
+}
+window.PageReview={create,broker,attachDrawer,configure};
+})();
