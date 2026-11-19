@@ -1,4 +1,4 @@
 interface:
   display_name: "GuanMao 评审"
-  short_description: "为 HTML、报告和演示稿加逐页评审，并交付带研发说明的可点击低保真原型"
-  default_prompt: "使用 $guanmao-design-review 为现有 HTML 添加逐页评审，或根据需求制作可离线交付的低保真原型。"
+  short_description: "PRD 转可点击原型，为 HTML、报告和设计稿添加逐页评审，并支持带图研发交接"
+  default_prompt: "用 $guanmao-design-review 把这份 PRD 做成可点击的低保真原型，每页加上本页意见和研发说明。"
