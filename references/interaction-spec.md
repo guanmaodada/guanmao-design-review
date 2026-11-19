@@ -26,7 +26,7 @@ python3 /path/to/guanmao-design-review/scripts/build_html.py report.html report-
 
 默认使用 `document.title` 作为显示名称，定位键为 `document`。可以给正文中的按钮或链接加 `data-review-target="overview"` 和 `data-review-title="运营概览"`。点击这些入口时更新评审上下文，同时保留原导航。初始章节可以在 `body` 上用同样两个属性指定。章节自动滚动时保持正在填写的上下文。
 
-已有分页逻辑的 HTML 可以直接内联 `page-review.css` 和 `page-review.js`，在原脚本初始化后挂载一次，并在实际切页、切场景或打开需要单独评审的弹窗时调用 `setContext(context)`。
+已有分页逻辑的 HTML 可以内联 `page-review.css` 与 `image-attachments.css`，按顺序加载 `image-attachments.js`、`review-package.js`、`page-review.js`。在原脚本初始化后挂载一次，并在实际切页、切场景或打开需要单独评审的弹窗时调用 `setContext(context)`。
 
 ```js
 const review = PageReview.attachDrawer({
@@ -38,11 +38,19 @@ review.setContext({id: "rollout", title: "上线步骤", section: "运营报告"
 
 对原型，把模块、页面和按需区分的场景组成评审 ID。普通报告按文档或章节定位，幻灯片和静态图按页定位。项目和评审 ID 使用稳定键。页码、标题、日期、文件名和排序用于显示。生成 PPT 评审 HTML 时，可嵌入幻灯片预览图，按实际翻页调用组件。已有 `PageReview` 的文档沿用其项目键、评审 ID 和挂载方式。沙箱 iframe 可沿用 `PageReview.broker(frame, project)`，固定评审入口宜放在最外层视口。
 
-评审记录与场景关联，写入当前浏览器。切页和刷新后应能找回草稿。写入失败时保留当前会话的记录并提示尽快导出。Markdown 用于逐项处理，JSON 用于备份。JSON 仅合并同一项目的记录，同一条保留较新的修改。修改回执可用 `PageReview.configure({project, receipts})` 加入，根据评审 ID 和完整意见匹配。
+评审记录与场景关联，写入当前浏览器。切页和刷新后应能找回草稿。写入失败时保留当前会话的记录并提示尽快导出。「仅导出文字」保留 Markdown 工作流。JSON 备份携带原图，仅合并同一项目的记录，同一条保留较新的修改。修改回执可用 `PageReview.configure({project, receipts})` 加入，根据评审 ID 和完整意见匹配。跨 iframe 使用新版 `PageReview.broker` 时，父级也应加载 `image-attachments.js`，由父级保存并提供图片原始数据。
+
+## 图片附件与带图交接
+
+- 两种输入区均支持一次上传多张图片。在正文里按 Ctrl+V 或 Cmd+V 可贴截图，普通文字粘贴照常处理。图号随意见或说明保存，删除其他图片时保留已有图号。每图可选填说明。点击缩略图可查看原图、切换图片或切到原始大小。
+- 研发说明的只读和可编辑 HTML 都内嵌图片，发一个文件即可离线查看。原型的图片草稿保存在浏览器。移动交付文件前，先导出带图交接或备份。
+- 「下载带图评审包」生成 ZIP，包含 `review.md` 和 `images/` 原图。解压后一起给智能体。文档按照模块、页面和场景定位，列出每条意见对应的图号、图片说明和相对路径。智能体先读正文，再打开相应原图核对；不明确的图片要求应结合正文确认。只有图片的意见也会导出。
 
 ## 生成或改造低保真原型
 
 `assets/prototype-template/` 提供导航、场景切换和挂载示例。把模板目录与相邻的 `assets/components/` 一起复制到交付工作目录，按需求替换 `pages.js` 的示例数据和页面。首次创建时设置稳定且唯一的项目键。模块 ID、页面 ID 和场景 ID 使用固定字符串，方便后续打开和定位。桌面、报告和终端的业务逻辑各自放在原型页面内。
+
+新建后台原型复用 `app.css` 的浅灰导航与页面底色、白底内容区、飞书蓝 `#1456F0` 主操作和浅蓝 `#F0F4FF` 选中态。列表页参考 `pages.js` 设备列表的工具栏、状态标签和右侧行操作。按需求取用统计区、搜索和行选择等组件。窄屏可横向滚动表格。模板依赖原生 HTML、CSS、JS，可离线打开。已有项目视觉体系或用户指定样式优先，已有 HTML 加评审时保留原页面样式。
 
 在脚本全部进入 DOM、生成动态页面之前创建研发说明组件，便于导出捕获完整的初始 HTML。保留模板中的 `<script id="dn-data" type="application/json">null</script>`。导航状态可用交接文件中记录的 `initialView` 恢复。每次渲染后提供当前画布和工具栏。
 

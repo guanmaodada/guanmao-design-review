@@ -145,9 +145,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }, true);
 });
 """.replace("PROJECT_JSON", project_json)
-    css = (COMPONENTS / "page-review.css").read_text(encoding="utf-8")
-    js = (COMPONENTS / "page-review.js").read_text(encoding="utf-8")
-    addition = "\n<style>\n" + css + "\n</style>\n" + script(js) + "\n" + script(bootstrap) + "\n"
+    styles = ("page-review.css", "image-attachments.css")
+    scripts = ("image-attachments.js", "review-package.js", "page-review.js")
+    css = "\n".join((COMPONENTS / name).read_text(encoding="utf-8") for name in styles)
+    js = "\n".join(script((COMPONENTS / name).read_text(encoding="utf-8")) for name in scripts)
+    addition = "\n<style>\n" + css + "\n</style>\n" + js + "\n" + script(bootstrap) + "\n"
     return source[:insert_at] + addition + source[insert_at:]
 
 

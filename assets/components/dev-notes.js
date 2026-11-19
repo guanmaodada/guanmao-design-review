@@ -13,6 +13,8 @@
     const baseStorageKey = 'design-dev-notes:'+project+':1';
     const storageKey = handoff ? baseStorageKey+':handoff:'+handoff.id : baseStorageKey;
     const notesState = {notes:exportData?.notes ?? [], nextId:exportData?.nextId ?? 1};
+    const images = window.ReviewImages?.store(storageKey);
+    const uploads = new Set();
     let lastStored;
     let warning = '';
     if (!readOnly) {
@@ -32,18 +34,19 @@
       }
     }
     const clamp = value => Math.max(0,Math.min(1,value));
-    notesState.notes = notesState.notes.map(({id,page,target,label,title,text,point})=>({
+    notesState.notes = notesState.notes.map(({id,page,target,label,title,text,point,images,imageSeq})=>({
       id,page,target,text:String(text ?? ''),title:String(title ?? label ?? ''),
+      images:Array.isArray(images) ? images.filter(image=>window.ReviewImages?.valid(image)) : [], imageSeq: imageSeq || 0,
       point:Number.isFinite(point?.x) && Number.isFinite(point?.y) ? {x:clamp(point.x),y:clamp(point.y)} : undefined,
     }));
     const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-    const filled = note => Boolean(note.title.trim() || note.text.trim());
+    const filled = note => Boolean(note.title.trim() || note.text.trim() || note.images?.length);
     const currentNotes = () => notesState.notes.filter(note=>note.page===scene?.page && (!readOnly || filled(note)));
     const number = note => String(currentNotes().indexOf(note)+1).padStart(2,'0');
     const byId = id => currentNotes().find(note=>note.id===id);
     function defaultTitle(note) {
       const firstLine = Array.from(note.text.trim().split('\n',1)[0].trim());
-      return firstLine.length>24 ? firstLine.slice(0,24).join('')+'…' : firstLine.join('') || '空白草稿';
+      return firstLine.length>24 ? firstLine.slice(0,24).join('')+'…' : firstLine.join('') || (note.images?.length ? '图片说明' : '空白草稿');
     }
     const titleOf = note => note.title.trim() || defaultTitle(note);
     const markerLabel = note => number(note)+' '+titleOf(note);
@@ -245,7 +248,7 @@
         : '点击画布上的编号查看说明，拖动编号可移动位置。'+(canSort ? '按住列表整行可拖动排序。' : '');
       const rows = items.map(item=>{
         const title = esc(titleOf(item));
-        const label = `<span class="dn-number">${number(item)}</span><span><strong>${title}</strong></span>`;
+        const label = `<span class="dn-number">${number(item)}</span><span><strong>${title}</strong>${item.images?.length ? `<span class="image-note-count">${item.images.length} 张图</span>` : ''}</span>`;
         if (selectedNoteIds) return `<li><label class="dn-note-option"><input type="checkbox" data-dn-note-id="${item.id}">${label}</label></li>`;
         return `<li class="dn-note-row" data-dn-order-id="${item.id}"${canSort?' draggable="true"':''}>
           <button type="button" data-dn-command="open" data-dn-value="${item.id}"${canSort?' aria-keyshortcuts="ArrowUp ArrowDown"':''}>
@@ -294,13 +297,14 @@
           ${readOnly?'':'<button type="button" class="dn-button dn-danger" data-dn-command="remove">删除这条说明</button>'}
         </div>
         <h3><span>${number(note)}</span> <strong id="dn-note-title">${esc(titleOf(note))}</strong></h3>
-        ${readOnly ? `<p class="dn-copy">${esc(note.text)}</p>` : `
+        ${readOnly ? `<p class="dn-copy">${esc(note.text)}</p><div data-dn-images></div>` : `
           <label class="dn-title-field">标题 <small>留空时使用正文首行</small>
             <input id="dn-title" type="text" maxlength="60" value="${esc(note.title)}" placeholder="选填">
           </label>
           <label class="dn-field">给研发的说明
             <textarea id="dn-text" rows="12" maxlength="6000" placeholder="例如：字段如何取值，按钮何时可用，失败时如何处理。">${esc(note.text)}</textarea>
           </label>
+          <div data-dn-images></div>
           <div class="dn-editor-actions">
             <button type="button" class="dn-button dn-primary" data-dn-command="save-continue">保存并继续添加</button>
             <p class="dn-save" aria-live="polite" role="status">${warning?'':filled(note)?'草稿保存在当前浏览器。':'输入后自动保存。'}</p>
@@ -326,11 +330,39 @@
             <button type="button" class="dn-button" data-dn-command="export" data-dn-value="read">导出带说明的 HTML</button>
             <button type="button" class="dn-button" data-dn-command="export" data-dn-value="editable">导出可编辑 HTML</button>
           </div>
-          <small aria-live="polite" id="dn-export-message">查看版供阅读，可编辑版包含说明和草稿，可交给同事继续修改。</small>
+          <small aria-live="polite" id="dn-export-message">图片随两种 HTML 一起导出。研发可打开只读版查看原图。</small>
         </footer>` : ''}
         <span class="dn-resize dn-resize-left" data-dn-resize="left" title="向左拖宽，向下拖高" aria-hidden="true"></span>
         <span class="dn-resize dn-resize-right" data-dn-resize="right" title="拖动调整宽度和高度" aria-hidden="true"></span>
       `;
+      if (note) {
+        const attachmentHost = drawer.querySelector('[data-dn-images]');
+        function saveImages(fields) {
+          if (!notesState.notes.includes(note) || readOnly) return;
+          const previous = note.images;
+          Object.assign(note, fields);
+          const saved = persist();
+          if (saved) discardImages(previous);
+          if (note === byId(activeId) && !drawer.hidden) {
+            const title = drawer.querySelector('#dn-note-title');
+            if (title) title.textContent = titleOf(note);
+            showSaveResult(saved);
+            const currentHost = drawer.querySelector('[data-dn-images]');
+            if (currentHost !== attachmentHost) ReviewImages.refresh(currentHost);
+          }
+          updateToggle();
+          drawMarkers();
+        }
+        window.ReviewImages?.mount(attachmentHost, {
+          store: images, uploads,
+          getImages: () => note.images || [],
+          addImages: incoming => saveImages(ReviewImages.append(note, incoming)),
+          removeImage: id => saveImages({images: note.images.filter(image => image.id !== id)}),
+          setCaption: (id, caption) => saveImages({images: note.images.map(image => image.id === id ? {...image, caption} : image)}),
+          textField: drawer.querySelector('#dn-text'),
+          readOnly,
+        });
+      }
       if (selectedNoteIds && !note) updateSelectionControls();
       keepDrawerInView();
       if (focus) (drawer.querySelector('#dn-text') || drawer.querySelector('#dn-heading')).focus({preventScroll:true});
@@ -356,6 +388,12 @@
       toggle.focus({preventScroll:true});
     }
 
+    function discardImages(previous) {
+      if (!previous.length || !images) return;
+      const retained = new Set(notesState.notes.flatMap(note=>note.images.map(image=>image.id)));
+      for (const image of previous) if (!retained.has(image.id)) images.remove(image.id).catch(()=>{});
+    }
+
     function removeNotes(items, bulk = false) {
       if (readOnly || !items.length) return;
       const message = bulk ? '删除选中的 '+items.length+' 条研发说明？' : '删除这条研发说明？';
@@ -369,6 +407,7 @@
         showSaveResult(false);
         return;
       }
+      discardImages(items.flatMap(note=>note.images));
       activeId = undefined;
       selectedNoteIds = null;
       sync(true);
@@ -376,7 +415,7 @@
     }
 
     function addPoint(point) {
-      const note = {id:notesState.nextId++,page:scene.page,title:'',text:'',point};
+      const note = {id:notesState.nextId++,page:scene.page,title:'',text:'',images:[],imageSeq:0,point};
       notesState.notes.push(note);
       activeId = note.id;
       persist();
@@ -384,24 +423,33 @@
       sync(true);
     }
 
-    function download(kind) {
+    async function download(kind) {
       const editable = kind==='editable';
+      await Promise.all(uploads);
       const notes = notesState.notes.filter(filled);
       const message = drawer.querySelector('#dn-export-message');
+      const initialView = scene.view;
       if (!editable && !notes.length) {
-        message.textContent = '填写至少一条说明后即可导出。';
+        if (message) message.textContent = '填写至少一条说明后即可导出。';
         return;
       }
       const pageIndexes = new Map();
-      const exportedNotes = (editable?notesState.notes:notes).map(note=>{
-        const index = pageIndexes.get(note.page) || 0;
-        pageIndexes.set(note.page,index+1);
-        return note.point?note:{...note,point:fallbackPoint(index)};
-      });
+      let exportedNotes;
+      try {
+        exportedNotes = await Promise.all((editable?notesState.notes:notes).map(async note=>{
+          const index = pageIndexes.get(note.page) || 0;
+          pageIndexes.set(note.page,index+1);
+          const embedded = note.images?.length ? await ReviewImages.embed(note.images,images) : [];
+          return {...note,images:embedded,point:note.point || fallbackPoint(index)};
+        }));
+      } catch (error) {
+        if (message) message.textContent = '导出失败：'+error.message;
+        return;
+      }
       const payload = {
         kind:editable?'editable':'read',
         id:Array.from(crypto.getRandomValues(new Uint32Array(4)),value=>value.toString(16)).join('-'),
-        view:scene.view,
+        view:initialView,
         notes:exportedNotes,
         nextId:notesState.nextId,
       };
@@ -413,7 +461,7 @@
       link.download = editable ? fileName+'-研发说明-可编辑.html' : fileName+'-研发说明.html';
       link.click();
       setTimeout(()=>URL.revokeObjectURL(url),60000);
-      message.textContent = editable ? '已生成可编辑 HTML，可将文件交给同事继续编辑。' : '已生成含 '+notes.length+' 条说明的 HTML。';
+      if (message) message.textContent = editable ? '已生成可编辑 HTML，可将文件交给同事继续编辑。' : '已生成含 '+notes.length+' 条说明的 HTML。';
     }
 
     function close() {

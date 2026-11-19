@@ -93,6 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function render() {
     const page = activePage();
+    get('page-path').textContent = [page.group, page.title].join(' / ');
     get('page-title').textContent = page.title;
     document.title = page.title + ' · ' + title;
     for (const {link, pageId} of pageLinks) {
@@ -122,6 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
     content.className = 'screen-content';
     content.innerHTML = page.render(route);
     canvas.replaceChildren(content);
+    page.mount?.(content);
     notes.mount({pageId: page.id, title: page.title, stage: canvas, controls: get('prototype-actions'), view: route});
     review.setContext(reviewContext());
   }
@@ -131,7 +133,7 @@ document.addEventListener('DOMContentLoaded', () => {
   for (const page of pages) {
     if (!groups.has(page.group)) {
       const group = document.createElement('div');
-      group.style.display = 'contents';
+      group.className = 'nav-group';
       const heading = document.createElement('h2');
       heading.textContent = page.group;
       group.append(heading);
@@ -154,6 +156,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!control) return;
     activePage().actions?.[control.dataset.action]?.({
       ...route,
+      control,
       navigate: next => navigate(next, {focus: true}),
       message: text => { canvas.querySelector('[data-message]').textContent = text; },
     });

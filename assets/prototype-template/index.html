@@ -3,19 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
   <title>设备巡检原型</title>
-  <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="../components/page-review.css">
   <link rel="stylesheet" href="../components/dev-notes.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="../components/image-attachments.css">
 </head>
-<body>
+<body class="prototype">
   <header class="masthead">
-    <strong id="project-title">设备巡检原型</strong>
+    <div class="prototype-brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <strong id="project-title">设备巡检原型</strong>
+    </div>
     <span>低保真</span>
   </header>
   <main class="workspace">
     <nav id="page-nav" aria-label="原型页面"></nav>
     <section class="workspace-page" aria-labelledby="page-title">
+      <div id="page-path" class="page-path"></div>
       <div class="page-heading">
         <h1 id="page-title"></h1>
         <div id="prototype-actions" aria-label="研发说明工具"></div>
@@ -28,6 +34,8 @@
     </section>
   </main>
   <script id="dn-data" type="application/json">null</script>
+  <script src="../components/image-attachments.js"></script>
+  <script src="../components/review-package.js"></script>
   <script src="../components/page-review.js"></script>
   <script src="../components/dev-notes.js"></script>
   <script src="pages.js"></script>
